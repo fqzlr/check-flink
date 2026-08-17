@@ -144,10 +144,30 @@ def upload_to_imagebed(image_bytes: bytes, filename: str) -> Optional[str]:
         return None
 
 
-def _take_screenshot_with_selenium(url: str, host: str) -> Optional[bytes]:
+def resolve_driver_path() -> str:
+    """
+    截图会开多个线程一起跑，每个线程原本都要自己装一遍 chromedriver。
+    驱动还没缓存的时候，几个线程同时去下载、抢 webdriver_manager 的缓存目录，
+    就会偶发崩在 tuple index out of range，导致那一轮截图掉回 thum.io 兜底。
+
+    所以这里先单独（单线程）把 chromedriver 装好、把路径拿到手，
+    后面所有线程直接用这个现成路径，不再各自去装。
+    """
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
+
+    return ChromeDriverManager().install()
+
+
+def _take_screenshot_with_selenium(
+    url: str, host: str, driver_path: Optional[str] = None
+) -> Optional[bytes]:
     """
     用 Selenium + Chrome 截取页面截图
     返回 PNG 字节流（失败返回 None）
+
+    driver_path: 预先解析好的 chromedriver 路径；为 None 时回退到
+    ChromeDriverManager().install()（仅单线程场景，如 __main__ 测试）。
     """
     try:
         from selenium import webdriver
@@ -180,7 +200,10 @@ def _take_screenshot_with_selenium(url: str, host: str) -> Optional[bytes]:
 
     driver = None
     try:
-        service = Service(ChromeDriverManager().install())
+        if driver_path:
+            service = Service(executable_path=driver_path)
+        else:
+            service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
         driver.set_page_load_timeout(30)
         logger.info(f"[selenium] 访问 {url} ...")
@@ -199,7 +222,7 @@ def _take_screenshot_with_selenium(url: str, host: str) -> Optional[bytes]:
                 pass
 
 
-def take_screenshot(url: str, host: str) -> str:
+def take_screenshot(url: str, host: str, driver_path: Optional[str] = None) -> str:
     """
     截取指定 URL 的主页截图 + 上传图床 + 失败兜底
     返回最终可用的图片 URL（永远返回字符串，绝不抛异常）
@@ -210,12 +233,14 @@ def take_screenshot(url: str, host: str) -> str:
     3. 截图 → PNG 字节流
     4. 上传至 tu.fqzlr.com/youlian/{host}.png
     5. 失败兜底到 thum.io 在线截图 URL
+
+    driver_path: 预先解析好的 chromedriver 路径（并发场景由调用方传入）
     """
     filename = _safe_filename(host)
 
     # 1. 尝试本地截图 + 上传
     try:
-        png_bytes = _take_screenshot_with_selenium(url, host)
+        png_bytes = _take_screenshot_with_selenium(url, host, driver_path)
         if png_bytes:
             delete_from_imagebed(filename)  # 先删旧图（容错：失败不影响上传）
             uploaded = upload_to_imagebed(png_bytes, filename)
