@@ -255,6 +255,7 @@ def check_author_link_in_page(session, linkpage_url):
 
     反链（反向链接）必须是可点击的超链接；仅在页面中以纯文本出现作者域名
     （如脚本、JSON、评论区等）不计为反链，避免误报。
+    AUTHOR_URL 支持逗号分隔多个域名（多博客共用检测时使用），命中任一即算反链。
     """
     if not AUTHOR_URL:
         return False
@@ -263,11 +264,18 @@ def check_author_link_in_page(session, linkpage_url):
     if not response:
         return False
 
-    # 归一化作者域名：去协议、去首尾斜杠、转小写，并兼容 www 前缀
-    bare = re.sub(r'^https?://', '', AUTHOR_URL.strip()).strip('/').lower()
-    domain_variants = {bare, 'www.' + bare}
-    if bare.startswith('www.'):
-        domain_variants.add(bare[4:])
+    # 归一化作者域名（支持逗号分隔多域名）：去协议、去首尾斜杠、转小写，并兼容 www 前缀
+    domain_variants = set()
+    bare_domains = []
+    for au in AUTHOR_URL.split(","):
+        au = au.strip()
+        if not au:
+            continue
+        bare = re.sub(r'^https?://', '', au).strip('/').lower()
+        bare_domains.append(bare)
+        domain_variants.update({bare, 'www.' + bare})
+        if bare.startswith('www.'):
+            domain_variants.add(bare[4:])
 
     content = response.text
 
@@ -279,7 +287,8 @@ def check_author_link_in_page(session, linkpage_url):
             return True
 
     # 未找到真实链接；若域名仅作为文本出现，单独记录但不计为反链
-    if bare in content.lower():
+    lower_content = content.lower()
+    if any(d in lower_content for d in bare_domains):
         logging.info(f"友链页面 {linkpage_url} 中仅出现作者URL文本，非真实链接，不计为反链")
     else:
         logging.info(f"友链页面 {linkpage_url} 中未找到作者链接")
