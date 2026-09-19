@@ -286,6 +286,7 @@ def _parse_repaired_array(arr_src: str) -> list[dict]:
 
 def parse_friends_config(config_path: Path) -> list[dict]:
     """对外：TS 文件解析，Layer1 优先，失败回退 Layer2。"""
+    config_path = Path(config_path)  # 兼容 CI 内联调用传入 str
     raw = config_path.read_text(encoding="utf-8")
     arr = _parse_with_tsx(config_path)
     if arr is not None:
