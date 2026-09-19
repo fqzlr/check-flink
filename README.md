@@ -46,9 +46,9 @@
 
 | 特性 | 说明 |
 |------|------|
-| **🔍 友链状态检测** | 每天 2 次自动巡检，统计延迟 + 失败次数 + 反链存在 |
+| **🔍 友链状态检测** | 每 2 天自动巡检，统计延迟 + 失败次数 + 反链存在 |
 | **📸 主页截图自动生成** | 每 6 天一次 Selenium 截图，自动上传图床 |
-| **🎯 三级截图兜底** | Selenium → mshots（WordPress.com）→ thum.io，WAF 拦截站点也能截图 |
+| **📸 两级截图兜底** | Selenium → thum.io，WAF 拦截站点也能截图 |
 | **🌐 地域屏蔽诊断** | 自动识别 EdgeOne/Cloudflare WAF 拦截，与真实故障区分 |
 | **🔌 单一数据源** | 友链配置只在博客侧维护，截图仓库自动读取 |
 | **📊 result.json 统一输出** | 状态 + 截图 URL 合并到一个 JSON，前端一次拉取 |
@@ -100,7 +100,7 @@
 独立入口，**解耦截图与状态检测**，支持 `TARGET_LINK` 过滤（只截指定友链）：
 
 ```text
-check_links job (每天 2 次) ─┐
+check_links job (每 2 天 1 次) ─┐
                             ├→ result.json (含 status + 历史 siteshot)
 take_screenshots job (6 天) ┘
 
@@ -134,7 +134,7 @@ requests==2.32.3
 
 | Job | 触发条件 | 用途 |
 |-----|----------|------|
-| `check_links` | 每日定时 / 手动（除「仅截图」外） | 状态检测，**轻量**（仅 requests） |
+| `check_links` | 每 2 天定时 / 手动（除「仅截图」外） | 状态检测，**轻量**（仅 requests） |
 | `take_screenshots` | 6 天定时 / 手动选「截图」或「全部」 | 主页截图，**重型**（Selenium + Chrome） |
 
 **手动触发参数**（workflow_dispatch）：
@@ -194,8 +194,8 @@ check-flink/
 
 | 文件 | 作用 | 何时被调用 |
 |------|------|------------|
-| `main.py` | 读友链 → 测延迟 → 写 result.json | check_links job（每天 2 次） |
-| `screenshot.py` | 单条截图 + 上传 + 三级兜底（Selenium→mshots→thum.io） | 被 screenshot_runner 调用 |
+| `main.py` | 读友链 → 测延迟 → 写 result.json | check_links job（每 2 天 1 次） |
+| `screenshot.py` | 单条截图 + 上传 + 兜底（Selenium→thum.io） | 被 screenshot_runner 调用 |
 | `screenshot_runner.py` | 遍历 result.json → 调用 screenshot → 写回 | take_screenshots job（6 天 1 次） |
 | `geo_diagnose.py` | 区分「地域屏蔽」与「真实故障」（EdgeOne/Cloudflare WAF 识别） | 被 main.py 导入（检测失败时自动调用） |
 | `friends_watcher.py` | 解析 friendsConfig.ts → 对比快照 → 增量调度 main.py + screenshot_runner.py | 本地开发/CI 手动触发（diff/run/watch 三种模式） |
@@ -236,7 +236,7 @@ git push -u origin main
 | Secret 名称 | 值 | 说明 |
 |------------|----|------|
 | `SOURCE_URL` | `https://你的博客.com/friends.json` | 友链数据源 URL（详见 Step 4） |
-| `AUTHOR_URL` | `fqzlr.com` | 你的博客域名（用于反链检测） |
+| `AUTHOR_URL` | `fqzlr.com` | 你的博客域名（用于反链检测），多个域名用英文逗号分隔 |
 | `IMG_UPLOAD_URL` | `https://tu.fqzlr.com/upload` | 图床上传端点（cfbed.sanyue.de 兼容） |
 | `IMG_AUTH_CODE` | （从图床后台获取） | 上传认证码 |
 
@@ -573,7 +573,7 @@ FriendCard 背景图渲染
 | 滚动条 | 隐藏 | `inject.css` |
 | 懒加载图 | 强制 eager | `inject.css` |
 
-### 兜底链（三级降级）
+### 兜底链（两级降级）
 
 ```text
 Level 1：Selenium 本地截图
@@ -582,12 +582,7 @@ Level 1：Selenium 本地截图
   │   └─ 失败（401 等）↓ Level 2
   └─ 失败（chromedriver 异常 / WAF拦截）↓ Level 2
 
-Level 2：WordPress.com mshots 在线截图
-  ├─ https://s0.wp.com/mshots/v1/{url}?w=400&h=300
-  ├─ 下载后上传图床，保持统一的图床 URL
-  └─ 失败（HTTP 非200 / 上传失败）↓ Level 3
-
-Level 3：thum.io 最终兜底
+Level 2：thum.io 最终兜底
   └─ https://image.thum.io/get/width/1280/crop/800/png/{url}
      （永远可用，免费但有 ~1 秒延迟，URL 直出不经过图床）
 ```
@@ -602,8 +597,7 @@ Level 3：thum.io 最终兜底
 
 | 时间 | 状态检测 | 主页截图 | 范围 |
 |------|:---:|:---:|------|
-| 每天 01:00 | ✅ | ❌ | 全部友链 |
-| 每天 13:00 | ✅ | ❌ | 全部友链 |
+| 每 2 天（每月奇数日 01:00） | ✅ | ❌ | 全部友链 |
 | 每 6 天（1/7/13/19/25 号 01:30） | ✅ | ✅ | 全部友链 |
 
 ### 二、手动触发（workflow_dispatch）
@@ -628,8 +622,8 @@ Level 3：thum.io 最终兜底
 
 ```yaml
 check_links:
-  # 除「手动选择仅截图」外，其余触发（定时 / 手动）都执行
-  if: ${{ github.event_name != 'workflow_dispatch' || inputs.task != 'screenshots_only' }}
+  # 始终运行状态检测，保证 result.json 总是最新（截图任务有数据可读）
+  if: ${{ true }}
 
 take_screenshots:
   # 仅在【每 6 天定时】或【手动选择 screenshots_only / both】时执行
@@ -660,7 +654,7 @@ take_screenshots:
 
 #### 2. 日常使用
 
-**自动运行**：系统每天自动检测 2 次（01:00/13:00），每 6 天自动截图一次
+**自动运行**：系统每 2 天自动检测 1 次（奇数日 01:00），每 6 天自动截图一次
 
 **手动触发**：在 Actions → Run workflow 面板：
 - `task`：选择任务类型
@@ -805,7 +799,7 @@ python check_siteshot.py ./result.json
 
 #### 1. 日常维护建议
 
-- **自动运行**：依赖系统自动检测（每天 2 次）
+- **自动运行**：依赖系统自动检测（每 2 天 1 次）
 - **手动触发**：仅在需要时手动触发（如新增友链）
 - **定期检查**：每周检查一次 result.json 状态
 
@@ -888,20 +882,24 @@ python friends_watcher.py watch --config ../fqzlr-bk/src/config/friendsConfig.ts
 
 ## ⚙️ 高级配置
 
-### 1. 调整截图频率
+### 1. 调整检测/截图频率
 
 编辑 `.github/workflows/check_links.yml`：
 
 ```yaml
 on:
   schedule:
+    # 检测 cron：默认每月奇数日 01:00（即每 2 天 1 次）
+    - cron: '0 1 */2 * *'
+    # 改为每天：- cron: '0 1 * * *'
+    # 改为每 3 天：- cron: '0 1 */3 * *'
     # 截图 cron：默认 1/7/13/19/25 号 01:30（即每 6 天）
     - cron: '30 1 1,7,13,19,25 * *'
     # 改为每天：- cron: '30 1 * * *'
     # 改为每周一：- cron: '30 1 * * 1'
 ```
 
-> ⚠️ 改频繁会快速消耗 GitHub Actions 配额（每月 2000 分钟）
+> ⚠️ 改频繁会快速消耗 GitHub Actions 配额（每月 2000 分钟）；`*/2` 按日期奇偶取值，月底月初可能偶发间隔 1 天
 
 ### 2. 调整并发数
 
@@ -956,7 +954,14 @@ Secret: myfriends   # 截图会存到 tu.xxx.com/myfriends/
 
 并在 Secrets 中设置 `AUTHOR_URL=fqzlr.com`（你的博客域名）。
 
-> 🔍 检测逻辑：抓取友链页面（`linkpage`，留空回退首页），用正则提取所有真实 `<a href>` 链接并精确比对主机名（兼容 `www`、协议相对、带路径、大小写）；**仅纯文本出现域名不计为反链**，避免误报。
+多个博客（域名不同）共用同一套检测时，`AUTHOR_URL` 支持逗号分隔多域名，命中任一即算反链：
+
+```text
+Secret: AUTHOR_URL
+值: fqzlr.com,blog.fqzlr.top
+```
+
+> 🔍 检测逻辑：抓取友链页面（`linkpage`，留空回退首页），用正则提取所有真实 `<a href>` 链接并精确比对主机名（兼容 `www`、协议相对、带路径、大小写；多域名任一命中即可）；**仅纯文本出现域名不计为反链**，避免误报。
 
 ### 7. 站点豁免（WAF/CDN 误拦截）
 

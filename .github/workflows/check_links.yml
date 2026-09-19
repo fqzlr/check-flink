@@ -2,10 +2,9 @@ name: Check Links and Generate JSON
 
 on:
   schedule:
-    # 每天 2 次：状态检测（保留原有行为）
-    - cron: '0 1 * * *'
-    - cron: '0 13 * * *'
-    # 每 6 天 1 次：友链主页截图（新增，节省 CI 配额）
+    # 每 2 天 1 次：状态检测（每月奇数日运行，月底与月初可能间隔 1 天）
+    - cron: '0 1 */2 * *'
+    # 每 6 天 1 次：友链主页截图（截图当天 check_links 也会跑一次，保证 result.json 新鲜）
     - cron: '30 1 1,7,13,19,25 * *'
   workflow_dispatch:
     inputs:
