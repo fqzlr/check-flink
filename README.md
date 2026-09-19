@@ -50,7 +50,7 @@
 | **📸 主页截图自动生成** | 每 6 天一次 Selenium 截图，自动上传图床 |
 | **📸 两级截图兜底** | Selenium → thum.io，WAF 拦截站点也能截图 |
 | **🌐 地域屏蔽诊断** | 自动识别 EdgeOne/Cloudflare WAF 拦截，与真实故障区分 |
-| **🔌 单一数据源** | 友链配置只在博客侧维护，截图仓库自动读取 |
+| **🔌 多源数据合并** | `SOURCE_URL` 支持逗号分隔多个数据源，多博客共用检测自动合并去重 |
 | **📊 result.json 统一输出** | 状态 + 截图 URL 合并到一个 JSON，前端一次拉取 |
 | **🎯 灵活触发 + 增量处理** | 定时全自动 + 手动按需，可只处理单个友链，其余保留历史状态 |
 | **🔗 精准反链检测** | 仅识别真实 `<a href>` 超链接，纯文本提及不算反链 |
@@ -235,7 +235,7 @@ git push -u origin main
 
 | Secret 名称 | 值 | 说明 |
 |------------|----|------|
-| `SOURCE_URL` | `https://你的博客.com/friends.json` | 友链数据源 URL（详见 Step 4） |
+| `SOURCE_URL` | `https://你的博客.com/friends.json` | 友链数据源 URL，支持逗号分隔多个（详见 Step 4） |
 | `AUTHOR_URL` | `fqzlr.com` | 你的博客域名（用于反链检测），多个域名用英文逗号分隔 |
 | `IMG_UPLOAD_URL` | `https://tu.fqzlr.com/upload` | 图床上传端点（cfbed.sanyue.de 兼容） |
 | `IMG_AUTH_CODE` | （从图床后台获取） | 上传认证码 |
@@ -380,6 +380,19 @@ Pasule,https://pasule.com/
 ```
 SOURCE_URL = ./link.csv
 ```
+
+#### 方案 C：多博客合并（多数据源）
+
+多个博客共用同一套检测服务时，`SOURCE_URL` 支持逗号分隔多个数据源，检测任务会逐个拉取、自动合并去重：
+
+```text
+SOURCE_URL = https://博客A.com/friends.json,https://博客B.com/friends.json
+```
+
+- 每个博客各自维护自己的友链清单（`/friends.json` 端点或 CSV），**无需手工同步**；
+- 单个数据源拉取失败不影响其余数据源；全部失败时按"数据源为空"处理；
+- 同一友链（URL 去尾斜杠、忽略大小写后相同）只检测一次，先出现的数据源的字段优先；
+- `http://` 与 `https://` 视为不同条目（博客前端按原始链接匹配，需各自保留）。
 
 ### Step 5 · 准备图床（截图上传）
 

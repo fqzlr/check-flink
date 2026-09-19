@@ -50,7 +50,9 @@ RAW_HEADERS = {  # 仅用于获取原始数据，防止接收到Accept-Language�
 }
 
 PROXY_URL_TEMPLATE = f"{os.getenv('PROXY_URL')}{{}}" if os.getenv("PROXY_URL") else None
-SOURCE_URL = os.getenv("SOURCE_URL", "https://blog.liushen.fun/flink_count.json")  # 默认本地文件
+# 数据源地址，支持逗号分隔多个（多博客共用一套检测时自动合并去重）：
+# 如 "https://blog-a.example.com/friends.json,https://blog-b.example.com/friends.json"
+SOURCE_URL = os.getenv("SOURCE_URL", "https://blog.liushen.fun/flink_count.json")
 RESULT_FILE = "./result.json"
 AUTHOR_URL = os.getenv("AUTHOR_URL", "blog.liushen.fun")  # 作者URL，用于检测反链
 
@@ -337,6 +339,47 @@ def fetch_origin_data(origin_path):
         return []
 
 
+def _dedup_key(link: str) -> str:
+    """多源合并的去重键：去首尾空白、转小写、去末尾斜杠。
+
+    注意：不去协议（http/https 视为不同条目），因为博客前端按原始 link
+    归一化匹配，同一站点以 http/https 两种形式被两个博客分别收录时应各自检测。
+    """
+    return (link or "").strip().lower().rstrip("/")
+
+
+def load_all_sources(source_spec: str) -> list:
+    """读取友链数据源，SOURCE_URL 支持逗号分隔多地址（多博客共用检测时使用）。
+
+    - 逐个拉取并解析（JSON 端点 / CSV 文件路径均可，见 fetch_origin_data）；
+    - 单个数据源失败只记警告，不影响其余数据源；
+    - 按 _dedup_key 去重合并，先出现的数据源优先（保留其 name/linkpage 字段）；
+    - 全部为空时返回 []，由调用方按"数据源为空"处理。
+    """
+    sources = [s.strip() for s in (source_spec or "").split(",") if s.strip()]
+    if not sources:
+        sources = [source_spec]
+
+    merged: list = []
+    seen: set = set()
+    for i, src in enumerate(sources, 1):
+        items = fetch_origin_data(src)
+        added = 0
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            key = _dedup_key(it.get("link", ""))
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(it)
+            added += 1
+        logging.info("数据源 %d/%d (%s): %d 条（合并新增 %d 条）", i, len(sources), src, len(items), added)
+
+    logging.info("多源合并完成：%d 个数据源，去重后共 %d 条友链", len(sources), len(merged))
+    return merged
+
+
 def check_link(item, session) -> Tuple[dict, float, bool, Optional[Any], Optional[Exception]]:
     """
     检测单个友链。
@@ -419,7 +462,7 @@ def handle_api_requests(session) -> list:
 
 def main():
     try:
-        link_list = fetch_origin_data(SOURCE_URL)
+        link_list = load_all_sources(SOURCE_URL)
         if not link_list:
             logging.error("数据源为空或解析失败")
             return
