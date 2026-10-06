@@ -307,9 +307,13 @@ jobs:
   take_screenshots:
     name: 截取友链主页截图
     runs-on: ubuntu-latest
-    # 关键改动：删除 needs: [check_links]，让此 job 完全独立
-    # 数据从 page 分支 curl 拉取，不依赖 check_links 的 artifact
-    # 仅在【每 6 天定时】或【手动选择 screenshots_only / both】时执行
+    # 【修复竞态覆盖】必须等 check_links 完成后再跑：both 模式下两个 job 原本
+    # 并行，take_screenshots 从 page 分支拉到的是 check_links push 前的旧
+    # result.json，而两者都会 force push page 分支——后完成的截图 job 会用
+    # 旧数据整体覆盖刚检测出的新数据（新增友链被抹掉）。串行化后截图始终
+    # 基于最新检测结果；check_links 恒真运行（screenshots_only 模式也跑全量
+    # 检测），needs 不会阻塞。
+    needs: [check_links]
     if: ${{ (github.event_name == 'schedule' && github.event.schedule == '30 1 1,7,13,19,25 * *') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'screenshots_only' || inputs.task == 'both')) }}
     steps:
     - name: Pull latest repository
